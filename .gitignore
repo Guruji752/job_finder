@@ -1,0 +1,57 @@
+# === Python Core ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# === Environments & Virtual Envs ===
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# === Dependency Management (uv) ===
+# Keep uv.lock and pyproject.toml in source control.
+# Only ignore the uv local state cache.
+.uv/
+
+# === Claude-md / Claude Workspace ===
+# Ignores local Claude-md generation states, configurations, and logs
+.claude/
+.claudemd/
+claude-md.log
+*.claude.md.tmp
+
+# === Testing / IDEs ===
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.vscode/
+.idea/
+.DS_Store
+CLAUDE.md
+poc_hf_llm.py
