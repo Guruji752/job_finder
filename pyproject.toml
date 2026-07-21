@@ -13,4 +13,6 @@ dependencies = [
     "pydantic-settings>=2.5",
     "huggingface-hub>=0.27",
     "numpy>=2.0",
+    "tavily-python>=0.7.26",
+    "langgraph>=1.2.9",
 ]
