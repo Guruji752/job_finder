@@ -1,6 +1,6 @@
 from langgraph.graph import StateGraph, END
 from app.services.graph.stategraph import JobSearchState
-from app.services.graph.nodes import retrieve_jobs, retrieve_profile, filter_jobs, rank_jobs
+from app.services.graph.nodes import retrieve_jobs, retrieve_profile, filter_jobs, rank_jobs, refine_query
 
 graph = StateGraph(JobSearchState)
 print("=== Adding Graph Nodes ====")
@@ -8,12 +8,15 @@ graph.add_node('retrieve_profile',retrieve_profile)
 graph.add_node('retrieve_jobs',retrieve_jobs)
 graph.add_node('filter_jobs',filter_jobs)
 graph.add_node('rank_jobs',rank_jobs)
+graph.add_node('refine_query',refine_query)
 
 ### EDGE ###
 graph.add_edge('retrieve_profile','retrieve_jobs')
 graph.add_edge('retrieve_jobs','filter_jobs')
-# graph.add_edge('filter_jobs','rank_jobs')
-# graph.add_edge('rank_jobs',END)
+# retry loop: after the strategist rewrites the query, search again with it.
+graph.add_edge('refine_query','retrieve_jobs')
+graph.add_edge('rank_jobs',END)
+
 graph.set_entry_point('retrieve_profile')
 #### END ##
 
@@ -28,13 +31,13 @@ def should_retry(state: JobSearchState):
     if not profile:
         return 'retrieve_profile'
 
-    # No jobs cleared filtering → retry the search, but only until the cap,
-    # otherwise the graph would loop forever. Past the cap, give up gracefully
-    # and rank whatever we have.
+    # No jobs cleared filtering → have the strategist rewrite the query and retry,
+    # but only until the cap, otherwise the graph would loop forever. Past the cap,
+    # give up gracefully and rank whatever we have.
     if len(filtered) == 0:
         if retry_count > 5:
             return 'rank_jobs'
-        return 'retrieve_jobs'
+        return 'refine_query'
 
     # Enough jobs → proceed to gap analysis.
     return 'rank_jobs'
@@ -44,12 +47,11 @@ graph.add_conditional_edges(
     should_retry,
     {
         'retrieve_profile':'retrieve_profile',
-        'retrieve_jobs':'retrieve_jobs',
+        'refine_query':'refine_query',
         'rank_jobs':'rank_jobs'
     }
 )
 
-graph.add_edge('rank_jobs',END)
 
 graph_app = graph.compile()
 

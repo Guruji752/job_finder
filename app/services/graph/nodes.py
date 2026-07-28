@@ -14,6 +14,7 @@ from app.profile.digest import get_profile_digest
 from app.matching.tier1 import rank_by_similarity
 # tier2's rank_jobs shares a name with our rank_jobs node, so alias it to avoid shadowing.
 from app.matching.tier2 import rank_jobs as gap_analyze_jobs
+from app.services.graph.strategy import reformulate_query
 
 # One source instance, reused across calls (same as main.py).
 _job_source = JSearchSource()
@@ -54,3 +55,16 @@ def rank_jobs(state: JobSearchState):
     profile = state["profile"]
     ranked = gap_analyze_jobs(state["filtered_jobs"], profile)
     return {"ranked_jobs": ranked, "is_done": True}
+
+
+def refine_query(state: JobSearchState):
+    print("=== ENTERED IN REFINE QUERY ====")
+    # Agentic step: the previous query returned too few jobs, so an LLM rewrites it
+    # into a better one. We also record the OLD query in tried_queries (append reducer)
+    # so the strategist never suggests a query we've already burned a search on.
+    new_query = reformulate_query(
+        state["query"],
+        state.get("tried_queries", []),
+        state["profile"],
+    )
+    return {"query": new_query, "tried_queries": [state["query"]]}
