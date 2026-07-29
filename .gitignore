@@ -54,4 +54,6 @@ htmlcov/
 .idea/
 .DS_Store
 CLAUDE.md
-poc_hf_llm.py
+poc_*.py
+*_cache.json
+qdrant/

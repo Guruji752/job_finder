@@ -19,12 +19,12 @@ Two goals, in priority order:
 | Area | Decision | Why |
 |---|---|---|
 | RAG service | Already exists, external. Chunk-retrieval style (`ask a question -> get resume text chunks`), not a structured-profile endpoint. | We're a *consumer*, not builder, of RAG. |
-| Job source | Aggregator APIs (Adzuna first), not direct scraping of LinkedIn/Naukri/Indeed. | Scraping LinkedIn/Indeed directly is fragile, ToS-violating, and high-maintenance. Aggregators give legal, structured, stable data. |
+| Job source | **JSearch (via RapidAPI)**, not Adzuna, not direct scraping. Aggregates from Google for Jobs (LinkedIn, Indeed, Glassdoor, ZipRecruiter, Monster, etc.) with per-listing source-platform attribution. | Adzuna doesn't expose which original platform a job came from (`redirect_url` points to Adzuna's own landing page, not the source site) — JSearch does, which directly matches the original "which platform" requirement. Avoided unofficial LinkedIn/Naukri "scraper APIs" on RapidAPI — same ToS-violation risk as direct scraping, just outsourced. **Known constraint: free tier is a hard 200 requests/month** — this is now the entire search budget, not just shortlist enrichment; watch usage once Phase 4's agent starts expanding queries. |
 | Interface | REST API only (FastAPI). No UI/CLI for now. | Keep scope tight; backend-focused. |
 | Models | **Fully open source (Hugging Face), no Claude/Anthropic API.** | Explicit goal: avoid vendor lock-in, learn the open-source ML ecosystem. Accepted trade-off: small/mid open models are less reliable than Claude at structured-JSON reasoning for gap analysis. |
 | Hardware | **No dedicated GPU available** (superseded earlier local-GPU-box plan). | Ruled out both a local box and free/eval-tier cloud GPU options (Colab/Kaggle: no stable endpoint; NVIDIA NIM free tier: eval-only rate limits; HF ZeroGPU Spaces: cold starts + quota) as unreliable for daily use. |
 | Model serving | **Hugging Face Inference Providers** (paid, pay-as-you-go), single OpenAI-compatible endpoint (`https://router.huggingface.co/v1`), routes to third-party providers (Together AI, Fireworks, Groq, etc.) actually hosting the model. | Production-grade reliability, no infra to manage, no markup over provider rates, monthly free credits applied automatically. Same OpenAI-compatible shape already designed into the app, so it's a `base_url` + API key change, nothing else. |
-| Models chosen | Extraction + gap analysis (LLM): **`Qwen/Qwen2.5-72B-Instruct`** (fallback: `Llama-3.3-70B-Instruct` if provider availability/pricing differs) via HF Inference Providers. Embeddings (Tier-1 filter): **`BAAI/bge-large-en-v1.5`**, run **locally on the dev machine via CPU** (`sentence-transformers`) — unaffected by the hosting change. | No longer VRAM-constrained since the provider manages the GPU — upgraded from the 14B ceiling to 70B-class for meaningfully better gap-analysis reasoning, closer to Claude quality. Embeddings stay local: free, fast enough on CPU, avoids a network hop for every Tier-1 comparison. |
+| Models chosen | Extraction + gap analysis (LLM): **`Qwen/Qwen2.5-72B-Instruct`** via HF Inference Providers OpenAI-compatible chat route (fallback: `Llama-3.3-70B-Instruct`). Embeddings (Tier-1 filter): **`BAAI/bge-large-en-v1.5`** via HF's **`feature_extraction` API** (`huggingface_hub.InferenceClient`), hosted — no local model. Both names in `app/config.py` as `CHAT_MODEL` / `EMBEDDING_MODEL`. | Everything runs on the HF API (no local models). **Key lesson:** HF has TWO embedding surfaces and they are not interchangeable. (1) OpenAI-compatible `router.huggingface.co/v1/embeddings` (`client.embeddings.create()`) routes to third-party providers — none host BGE, so it 404s; this dead end cost several detours (tried `:hf-inference`, `:together`, `intfloat/multilingual-e5-large-instruct`, and even a local `fastembed` fallback). (2) `huggingface_hub.InferenceClient(...).feature_extraction(model=...)` uses HF's own `hf-inference` backend and DOES serve BGE — this is the working path, and the one the existing RAG service already uses. BGE via `feature_extraction` returns token-level embeddings `(seq_len, dim)`, so Tier-1 mean-pools across tokens to get a sentence vector (mirrors the RAG service). Text truncated to 1500 chars per call. Query-instruction prefix applied on the profile/query side (BGE convention). |
 | Vendor lock-in trade-off (explicit) | Accepted: this reintroduces a hosted-API dependency structurally similar to the original Claude-API concern, just serving open weights instead of closed ones. Self-hosted serving (vLLM/GPU management) is **dropped from the near-term plan**, kept only as a stretch goal (see Phase 6). | Practicality won given repeated hardware/free-tier dead ends. What's preserved from the original motivation: open-weight models, HF ecosystem familiarity. What's given up for now: hands-on inference-serving experience. |
 | Auth | HF API token as bearer auth (standard), stored as an env var/secret — not committed. | Standard practice for any hosted API key. |
 
@@ -47,18 +47,17 @@ Two goals, in priority order:
                     │  embeddings — in-process, no network) │
                     └──────┼─────────┼────────────┼─────────┘
                            ▼         ▼            ▼
-                     Adzuna/JSearch  Existing   Qwen2.5-72B-
-                     (job data)      RAG API    Instruct (or
-                                                 Llama-3.3-70B),
-                                                 hosted by a
+                       JSearch      Existing   Qwen2.5-72B-
+                     (RapidAPI,      RAG API    Instruct (or
+                      job data +                Llama-3.3-70B),
+                      source platform)           hosted by a
                                                  routed provider
 ```
 
 ### Four separate concerns (why they're separate)
 
-1. **`JobSource` adapters** — interface with one concrete impl (Adzuna) to
-   start. Adding a second source (JSearch, etc.) later must not touch
-   matching logic.
+1. **`JobSource` adapters** — interface with one concrete impl (JSearch) to
+   start. Adding a second source later must not touch matching logic.
 2. **`RAGClient`** — thin HTTP client to the existing chunk-retrieval RAG
    endpoint. Isolated so a RAG API change touches one file.
 3. **Matching engine — two-tier funnel** (cost/quality control):
@@ -98,7 +97,7 @@ Ranked list where each item is:
 | # | Phase | Delivers |
 |---|---|---|
 | 0 | Skeleton | FastAPI app, config (env vars for keys/URLs), Docker + compose, `/health` |
-| 1 | Job discovery | Adzuna adapter behind `JobSource` interface; `POST /search` returns normalized raw jobs |
+| 1 | Job discovery | JSearch adapter behind `JobSource` interface; `POST /search` returns normalized raw jobs (including source platform) |
 | 2 | RAG integration | `RAGClient` wired to the existing endpoint; verify profile-fact retrieval |
 | 2.5 | Model access setup | See sub-phases below — gets HF Inference Providers + local embeddings wired up |
 | 3 | Matching | Tier-1 similarity filter -> Tier-2 gap analysis -> ranked JSON response |
@@ -117,7 +116,7 @@ Ranked list where each item is:
 
 ## External dependencies / accounts needed
 
-- Adzuna `app_id` + `app_key` (free tier)
+- OpenWeb Ninja account + JSearch API key (direct, no RapidAPI middleman), free tier 200 requests/month, auth via `x-api-key` header
 - Existing RAG endpoint URL
 - Hugging Face account + API token (Inference Providers, pay-as-you-go)
 
@@ -126,8 +125,32 @@ Ranked list where each item is:
 - Gap-analysis quality from Qwen2.5-72B vs. Claude hasn't been empirically
   tested yet — watch for confidently-wrong "strong match" verdicts once
   Phase 3 is live; may need prompt tuning or a different open model.
-- Whether a second aggregator (JSearch, SerpAPI Google Jobs) gets added
-  depends on how much Adzuna's coverage turns out to be missing.
+- **Confirmed empirically:** `ProfileDigest.years_experience` is unstable
+  across separate runs of `build_profile_digest()` — observed 5.47, 6.5,
+  and 8.0 across three runs on the same resume (the LLM computing arithmetic
+  over unstructured date ranges, not a deterministic parse). `seniority` was
+  fixed by adding a job-titles question and instructing the prompt to weigh
+  title over computed years (confirmed working: now correctly returns
+  `"senior"`). Treat `years_experience` as a soft signal in Phase 3 matching,
+  not a hard filter, given this variance — revisit only if it causes visibly
+  bad matches in practice.
+- **Confirmed empirically:** the provider currently serving
+  `Qwen2.5-72B-Instruct` through HF Inference Providers rejects
+  `response_format={"type": "json_object"}` (400 error, "not supported").
+  Structured output relies on prompt instructions + defensive parsing
+  (`app/profile/digest.py::_parse_json_response`, strips markdown fences /
+  extracts `{...}` substring) instead of a strict API-enforced mode. Same
+  risk applies to Phase 3's gap-analysis JSON output — reuse this parsing
+  approach there rather than assuming `response_format` will work.
+- JSearch's 200/month free cap is the entire search budget now (no Adzuna
+  fallback) — monitor real usage once Phase 4's agent starts expanding a
+  single search into multiple queries; may need to add Adzuna back as a
+  bulk-search source if the cap turns out too tight.
+- **Confirmed empirically:** `num_pages > 1` on `/search-v2` is billed as
+  multiple separate requests against the 200/month quota, not one — e.g.
+  `num_pages=10` consumes ~10 requests, not 1. Keep `num_pages` low (2 is
+  the current default in `JSearchSource.search()`); rely on `date_posted`
+  filtering for relevance rather than requesting many pages.
 - Actual per-token cost of Qwen2.5-72B/Llama-3.3-70B via HF Inference
   Providers hasn't been checked against real usage volume yet — verify
   after a few days of real searches that the "sporadic use = cheap" assumption
