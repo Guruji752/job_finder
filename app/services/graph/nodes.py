@@ -16,6 +16,7 @@ from app.matching.tier1 import rank_by_similarity
 from app.matching.tier2 import rank_jobs as gap_analyze_jobs
 from app.services.graph.strategy import reformulate_query
 from app.services.graph.dummy_source import load_dummy_jobs
+from app.services.graph.judge_result import judge_results
 
 # One source instance, reused across calls (same as main.py).
 _job_source = JSearchSource()
@@ -60,9 +61,23 @@ def rank_jobs(state: JobSearchState):
 
 def supervisor(state: JobSearchState):
     print("=== ENTERED SUPERVISOR ====")
-    # Thin loop-back hub — the actual decision happens in route_supervisor (edges.py).
-    # This node exists so rank_jobs and dummy_agent have somewhere to return control to.
-    return {}
+    # First visit, nothing to judge yet — skip the LLM call entirely and just kick
+    # off the search. No point paying for reasoning when there's no data to reason about.
+    if not state.get('ranked_jobs'):
+        return {"supervisor_decision": "retrieve_profile"}
+
+    decision = judge_results(state["profile"], state)
+
+    retry_count = state.get('retry_count', 0)
+    if retry_count > 5:
+        # Hard cap — never let the LLM keep restarting the search past this point,
+        # regardless of what it decides. Same principle as should_retry's cap.
+        decision = "end" if state.get("dummy_used", False) else "dummy_agent"
+    elif decision == "dummy_agent" and state.get("dummy_used", False):
+        # Safety net: don't trust the LLM alone to honor "only if dummy_used is false".
+        decision = "end"
+
+    return {"supervisor_decision": decision}
 
 
 def dummy_agent(state: JobSearchState):

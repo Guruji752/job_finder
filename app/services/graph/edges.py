@@ -1,5 +1,4 @@
 from langgraph.graph import StateGraph, END
-from app.config import settings
 from app.services.graph.stategraph import JobSearchState
 from app.services.graph.nodes import (
     retrieve_jobs, retrieve_profile, filter_jobs, rank_jobs, refine_query,
@@ -64,14 +63,10 @@ graph.add_conditional_edges(
 
 def route_supervisor(state: JobSearchState):
     print("==== SUPERVISOR ROUTING ====")
-    ranked = state.get('ranked_jobs', [])
-    dummy_used = state.get('dummy_used', False)
-
-    if not ranked:
-        return 'retrieve_profile'          # haven't searched yet
-    if len(ranked) < settings.min_jobs_count and not dummy_used:
-        return 'dummy_agent'               # too few jobs, fall back once
-    return 'end'
+    # Pure lookup now — the actual judgment already happened in the supervisor
+    # node (an LLM call, or the trivial first-visit shortcut), and got stored
+    # in state. This router just relays that decision.
+    return state['supervisor_decision']
 
 graph.add_conditional_edges(
     'supervisor',

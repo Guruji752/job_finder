@@ -25,4 +25,5 @@ class JobSearchState(TypedDict):
     messages: Annotated[list, add_messages]   # conversation history (unused until later phases)
     retry_count: int                          # search-retry counter (advanced in a node)
     dummy_used: bool                          # Supervisor uses this to only fall back once
+    supervisor_decision: str                  # LLM's routing decision, read by route_supervisor
     is_done: bool                             # are we finished?
