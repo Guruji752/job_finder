@@ -56,3 +56,4 @@ htmlcov/
 CLAUDE.md
 poc_*.py
 *_cache.json
+qdrant/

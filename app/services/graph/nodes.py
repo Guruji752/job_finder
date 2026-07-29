@@ -15,6 +15,7 @@ from app.matching.tier1 import rank_by_similarity
 # tier2's rank_jobs shares a name with our rank_jobs node, so alias it to avoid shadowing.
 from app.matching.tier2 import rank_jobs as gap_analyze_jobs
 from app.services.graph.strategy import reformulate_query
+from app.services.graph.dummy_source import load_dummy_jobs
 
 # One source instance, reused across calls (same as main.py).
 _job_source = JSearchSource()
@@ -55,6 +56,24 @@ def rank_jobs(state: JobSearchState):
     profile = state["profile"]
     ranked = gap_analyze_jobs(state["filtered_jobs"], profile)
     return {"ranked_jobs": ranked, "is_done": True}
+
+
+def supervisor(state: JobSearchState):
+    print("=== ENTERED SUPERVISOR ====")
+    # Thin loop-back hub — the actual decision happens in route_supervisor (edges.py).
+    # This node exists so rank_jobs and dummy_agent have somewhere to return control to.
+    return {}
+
+
+def dummy_agent(state: JobSearchState):
+    print("=== ENTERED DUMMY AGENT ====")
+    # Fallback specialist: too few real results, so supplement with a pre-analyzed
+    # canned batch instead of paying for a second live source (e.g. Tavily).
+    dummy_jobs = load_dummy_jobs()
+    return {
+        "ranked_jobs": state.get("ranked_jobs", []) + dummy_jobs,
+        "dummy_used": True,
+    }
 
 
 def refine_query(state: JobSearchState):

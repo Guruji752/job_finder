@@ -19,5 +19,9 @@ class Settings(BaseSettings):
     chat_model: str = "Qwen/Qwen2.5-72B-Instruct"
     embedding_model: str = "BAAI/bge-large-en-v1.5"
 
+    # --- Supervisor ---
+    # Below this many ranked jobs, the Supervisor falls back to the Dummy Agent once.
+    min_jobs_count: int = 15
+
 
 settings = Settings()

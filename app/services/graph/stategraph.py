@@ -24,4 +24,5 @@ class JobSearchState(TypedDict):
     ranked_jobs: list[RankedJob]              # final Tier-2 gap-analysed results
     messages: Annotated[list, add_messages]   # conversation history (unused until later phases)
     retry_count: int                          # search-retry counter (advanced in a node)
+    dummy_used: bool                          # Supervisor uses this to only fall back once
     is_done: bool                             # are we finished?
