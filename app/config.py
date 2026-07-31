@@ -8,6 +8,9 @@ class Settings(BaseSettings):
     jsearch_api_key: str = ""
     jsearch_country: str = "in"
 
+    # --- Job sources (Exa) ---
+    exa_api_key: str = ""
+
     # --- RAG service (existing, external) ---
     rag_base_url: str = "http://localhost:8001"
 
