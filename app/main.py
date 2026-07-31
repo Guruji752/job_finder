@@ -11,6 +11,7 @@ class SearchRequest(BaseModel):
     query: str
     location: str | None = None
     num_pages: int = 2
+    date_posted: str = "week"  # one of: today, 3days, week, month, all
 
 
 @app.get("/health")
@@ -29,6 +30,7 @@ def search(request: SearchRequest) -> list[RankedJob]:
             "query": request.query,
             "location": request.location,
             "num_pages": request.num_pages,
+            "date_posted": request.date_posted,
             "retry_count": 0,
         }
     )

@@ -18,7 +18,11 @@ def parse_json_response(raw: str) -> dict:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        start, end = text.find("{"), text.rfind("}")
-        if start != -1 and end != -1:
-            return json.loads(text[start : end + 1])
+        # rfind("}") assumed the LAST brace in the text closes the FIRST one —
+        # breaks when the model adds trailing text/commentary containing its
+        # own braces after the JSON. raw_decode parses just the first complete
+        # JSON value starting at `start` and ignores anything after it.
+        start = text.find("{")
+        if start != -1:
+            return json.JSONDecoder().raw_decode(text[start:])[0]
         raise

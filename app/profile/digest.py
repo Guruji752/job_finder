@@ -66,5 +66,8 @@ def get_profile_digest(force_refresh: bool = False) -> ProfileDigest:
     """
     global _cached_digest
     if _cached_digest is None or force_refresh:
+        print("=== GET_PROFILE_DIGEST: cache miss, calling RAG + LLM to build digest ===")
         _cached_digest = build_profile_digest()
+    else:
+        print("=== GET_PROFILE_DIGEST: cache hit, reusing digest from earlier in this process (no RAG call) ===")
     return _cached_digest

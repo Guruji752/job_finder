@@ -8,6 +8,9 @@ class Settings(BaseSettings):
     jsearch_api_key: str = ""
     jsearch_country: str = "in"
 
+    # --- Job sources (Exa) ---
+    exa_api_key: str = ""
+
     # --- RAG service (existing, external) ---
     rag_base_url: str = "http://localhost:8001"
 
@@ -18,10 +21,6 @@ class Settings(BaseSettings):
     # --- Models ---
     chat_model: str = "Qwen/Qwen2.5-72B-Instruct"
     embedding_model: str = "BAAI/bge-large-en-v1.5"
-
-    # --- Supervisor ---
-    # Below this many ranked jobs, the Supervisor falls back to the Dummy Agent once.
-    min_jobs_count: int = 15
 
 
 settings = Settings()
