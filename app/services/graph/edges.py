@@ -1,3 +1,4 @@
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, END
 from app.services.graph.stategraph import JobSearchState
 from app.services.graph.nodes import (
@@ -80,7 +81,14 @@ graph.add_conditional_edges(
     }
 )
 
-graph_app = graph.compile()
+# Checkpointer persists state per thread_id after every node — required for
+# pause/resume. MemorySaver is in-process only (lost on restart), good enough
+# to prove the mechanism before considering a persistent backend (e.g. Redis).
+checkpointer = MemorySaver()
+
+# Pause right before the expensive step (Tier-2 LLM gap analysis) so a human
+# can review the cheap Tier-1 shortlist first and approve before we spend on it.
+graph_app = graph.compile(checkpointer=checkpointer, interrupt_before=["rank_jobs"])
 
 
 
