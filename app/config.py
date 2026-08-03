@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     # --- RAG service (existing, external) ---
     rag_base_url: str = "http://localhost:8001"
 
+    # --- Cache (Redis) ---
+    redis_url: str = "redis://localhost:6379/0"
+
     # --- Hugging Face Inference Providers ---
     hf_token: str = ""
     hf_base_url: str = "https://router.huggingface.co/v1"

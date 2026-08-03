@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 
+from app.cache.redis_client import get_redis_client
 from app.config import settings
 from app.llm.client import get_llm_client
 from app.llm.json_parse import parse_json_response
@@ -54,20 +55,25 @@ def build_profile_digest(rag_client: RAGClient | None = None) -> ProfileDigest:
     return ProfileDigest.model_validate(parse_json_response(raw))
 
 
-_cached_digest: ProfileDigest | None = None
+_PROFILE_DIGEST_KEY = "job_finder:profile_digest"
 
 
 def get_profile_digest(force_refresh: bool = False) -> ProfileDigest:
-    """Return the candidate's profile digest, building it once and caching it.
+    """Return the candidate's profile digest, cached in Redis.
 
     The digest describes the candidate (not the search), so it's reused across
-    requests — avoids re-hitting RAG + the LLM on every /search call. Call with
-    force_refresh=True after the resume changes.
+    requests and process restarts — avoids re-hitting RAG + the LLM on every
+    /search call. Call with force_refresh=True after the resume changes.
     """
-    global _cached_digest
-    if _cached_digest is None or force_refresh:
-        print("=== GET_PROFILE_DIGEST: cache miss, calling RAG + LLM to build digest ===")
-        _cached_digest = build_profile_digest()
-    else:
-        print("=== GET_PROFILE_DIGEST: cache hit, reusing digest from earlier in this process (no RAG call) ===")
-    return _cached_digest
+    redis_client = get_redis_client()
+
+    if not force_refresh:
+        cached = redis_client.get(_PROFILE_DIGEST_KEY)
+        if cached is not None:
+            print("=== GET_PROFILE_DIGEST: cache hit in Redis (no RAG call) ===")
+            return ProfileDigest.model_validate_json(cached)
+
+    print("=== GET_PROFILE_DIGEST: cache miss, calling RAG + LLM to build digest ===")
+    digest = build_profile_digest()
+    redis_client.set(_PROFILE_DIGEST_KEY, digest.model_dump_json())
+    return digest

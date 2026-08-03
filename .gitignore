@@ -57,3 +57,5 @@ CLAUDE.md
 poc_*.py
 *_cache.json
 qdrant/
+QUESTIONS.md
+WORKFLOW.md

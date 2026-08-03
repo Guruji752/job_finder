@@ -26,3 +26,20 @@ def parse_json_response(raw: str) -> dict:
         if start != -1:
             return json.JSONDecoder().raw_decode(text[start:])[0]
         raise
+
+
+def parse_json_array(raw: str) -> list:
+    """Same as parse_json_response, but for responses that are a JSON array."""
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.lower().startswith("json"):
+            text = text[4:]
+        text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("[")
+        if start != -1:
+            return json.JSONDecoder().raw_decode(text[start:])[0]
+        raise
