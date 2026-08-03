@@ -126,6 +126,8 @@ def search_agent(state: JobSearchState):
     print(f"=== SEARCH_AGENT: query='{query}' -> fetched {len(raw_jobs)} jobs total (retry_count now {new_retry_count}) ===")
 
     return {
-        "raw_jobs": raw_jobs,
+        # Dumped to dict — see stategraph.py's note on why real Job instances
+        # can't be stored directly in checkpointed state.
+        "raw_jobs": [job.model_dump() for job in raw_jobs],
         "retry_count": new_retry_count,
     }

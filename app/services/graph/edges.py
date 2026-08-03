@@ -1,5 +1,6 @@
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.redis import RedisSaver
 from langgraph.graph import StateGraph, END
+from app.config import settings
 from app.services.graph.stategraph import JobSearchState
 from app.services.graph.nodes import (
     retrieve_jobs, retrieve_profile, filter_jobs, rank_jobs, refine_query,
@@ -82,9 +83,12 @@ graph.add_conditional_edges(
 )
 
 # Checkpointer persists state per thread_id after every node — required for
-# pause/resume. MemorySaver is in-process only (lost on restart), good enough
-# to prove the mechanism before considering a persistent backend (e.g. Redis).
-checkpointer = MemorySaver()
+# pause/resume. Redis-backed (not MemorySaver) so a paused thread survives a
+# server restart, not just a browser refresh — reuses the same Redis already
+# wired in for the profile digest cache. setup() creates the RediSearch
+# indices this needs; safe to call every startup, it's idempotent.
+checkpointer = RedisSaver(redis_url=settings.redis_url)
+checkpointer.setup()
 
 # Pause right before the expensive step (Tier-2 LLM gap analysis) so a human
 # can review the cheap Tier-1 shortlist first and approve before we spend on it.

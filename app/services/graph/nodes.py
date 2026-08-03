@@ -6,10 +6,17 @@ Whatever it returns is merged back into the shared state by LangGraph — that
 (and only that) is how state changes. Routers/edges never mutate state.
 
 Each node here is a thin wrapper over the pipeline functions you already built.
+
+Second rule (see stategraph.py): raw_jobs/filtered_jobs/ranked_jobs/profile
+are stored in state as plain dicts, not real Job/ProfileDigest/RankedJob
+instances — required for the Redis checkpointer. Nodes reconstruct a typed
+instance locally when they need attribute access, and dump back to dict
+(.model_dump()) before returning.
 '''
 from app.services.graph.stategraph import JobSearchState
 
-from app.profile.digest import get_profile_digest
+from app.job_sources.base import Job
+from app.profile.digest import ProfileDigest, get_profile_digest
 from app.matching.tier1 import rank_by_similarity
 # tier2's rank_jobs shares a name with our rank_jobs node, so alias it to avoid shadowing.
 from app.matching.tier2 import rank_jobs as gap_analyze_jobs
@@ -25,7 +32,7 @@ def retrieve_profile(state: JobSearchState):
     # (cached inside get_profile_digest, so re-entering is cheap).
     profile = get_profile_digest()
     print(f"=== RETRIEVE_PROFILE: skills={profile.skills}, seniority={profile.seniority}, domains={profile.domains}, years_experience={profile.years_experience} ===")
-    return {"profile": profile}
+    return {"profile": profile.model_dump()}
 
 
 def retrieve_jobs(state: JobSearchState):
@@ -38,19 +45,21 @@ def retrieve_jobs(state: JobSearchState):
 
 def filter_jobs(state: JobSearchState):
     # Tier 1: cheap embedding-similarity ranking of ALL fetched jobs (no truncation).
-    profile = state["profile"]
-    ranked = rank_by_similarity(state["raw_jobs"], profile)
+    profile = ProfileDigest(**state["profile"])
+    raw_jobs = [Job(**j) for j in state["raw_jobs"]]
+    ranked = rank_by_similarity(raw_jobs, profile)
     print(f"=== FILTER_JOBS: {len(ranked)} jobs after Tier-1 similarity ranking ===")
-    return {"filtered_jobs": ranked}
+    return {"filtered_jobs": [job.model_dump() for job in ranked]}
 
 
 def rank_jobs(state: JobSearchState):
     # Tier 2: expensive LLM gap analysis on the filtered jobs → RankedJob list,
     # sorted by match_score. This is a terminal node, so we also mark is_done.
-    profile = state["profile"]
-    ranked = gap_analyze_jobs(state["filtered_jobs"], profile)
+    profile = ProfileDigest(**state["profile"])
+    filtered_jobs = [Job(**j) for j in state["filtered_jobs"]]
+    ranked = gap_analyze_jobs(filtered_jobs, profile)
     print(f"=== RANK_JOBS: {len(ranked)} jobs after Tier-2 gap analysis ===")
-    return {"ranked_jobs": ranked, "is_done": True}
+    return {"ranked_jobs": [rj.model_dump() for rj in ranked], "is_done": True}
 
 
 def supervisor(state: JobSearchState):
@@ -66,7 +75,7 @@ def supervisor(state: JobSearchState):
     print(f"=== SUPERVISOR: accepting results as-is (ranked_jobs={len(state.get('ranked_jobs', []))}) ===")
     return {"supervisor_decision": "end"}
 
-    # decision, max_score = judge_results(state["profile"], state)
+    # decision, max_score = judge_results(ProfileDigest(**state["profile"]), state)
     #
     # retry_count = state.get('retry_count', 0)
     # print(f"=== SUPERVISOR: LLM decided '{decision}' (retry_count={retry_count}, ranked_jobs={len(state.get('ranked_jobs', []))}, max_score={max_score}) ===")
@@ -88,15 +97,12 @@ def refine_query(state: JobSearchState):
     new_query = reformulate_query(
         state["query"],
         state.get("tried_queries", []),
-        state["profile"],
+        ProfileDigest(**state["profile"]),
     )
     return {"query": new_query, "tried_queries": [state["query"]]}
 
 def filter_duplicate(state:JobSearchState):
     print("===== Filtered Duplicate Jobs =======")
-    jobs = state['raw_jobs']
+    jobs = [Job(**j) for j in state['raw_jobs']]
     unique = dedup_jobs(jobs)
-    return {"raw_jobs":unique}
-   
-
-    
+    return {"raw_jobs": [job.model_dump() for job in unique]}
